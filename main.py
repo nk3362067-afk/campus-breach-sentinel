@@ -3,12 +3,11 @@ import hashlib
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-app = FastAPI(title="Campus Breach Sentinel")
+app = FastAPI(title="Campus Breach Sentinel Enterprise")
 
 def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-# 1. Search email
 def find_email_breaches(email: str):
     conn = sqlite3.connect("breaches.db")
     cursor = conn.cursor()
@@ -20,7 +19,6 @@ def find_email_breaches(email: str):
     conn.close()
     return [{"name": r[0], "date": r[1], "leaked": r[2], "risk": r[3]} for r in rows]
 
-# 2. Search password hash
 def find_password_breach(password: str):
     pwd_hash = hash_text(password.strip())
     conn = sqlite3.connect("breaches.db")
@@ -29,10 +27,9 @@ def find_password_breach(password: str):
     row = cursor.fetchone()
     conn.close()
     if row:
-        return {"is_leaked": True, "times_seen": row[0]}
-    return {"is_leaked": False, "times_seen": 0}
+        return {"is_leaked": True, "times_seen": row[0], "sha256": pwd_hash}
+    return {"is_leaked": False, "times_seen": 0, "sha256": pwd_hash}
 
-# 3. Search by Domain (e.g. college.edu)
 def find_domain_breaches(domain: str):
     domain = domain.strip().lower().replace("@", "")
     conn = sqlite3.connect("breaches.db")
@@ -48,8 +45,25 @@ def find_domain_breaches(domain: str):
         for r in rows
     ]
 
+def get_platform_metrics():
+    conn = sqlite3.connect("breaches.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*), COUNT(DISTINCT email) FROM breaches")
+    total_records, distinct_emails = cursor.fetchone()
+    cursor.execute("SELECT COUNT(*) FROM leaked_passwords")
+    total_passwords = cursor.fetchone()[0]
+    conn.close()
+    return {
+        "total_records": total_records or 0,
+        "distinct_targets": distinct_emails or 0,
+        "indexed_passwords": total_passwords or 0
+    }
 
 # --- API Endpoints ---
+
+@app.get("/api/metrics")
+def get_metrics():
+    return get_platform_metrics()
 
 @app.get("/api/check-email")
 def check_email(email: str = ""):
@@ -71,8 +85,7 @@ def check_domain(domain: str = ""):
     records = find_domain_breaches(domain)
     return {"domain": domain, "total_found": len(records), "results": records}
 
-
-# --- Frontend Dashboard ---
+# --- Professional Frontend ---
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -82,125 +95,228 @@ def home():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Campus Breach Sentinel</title>
+        <title>Campus Breach Sentinel | Threat Intelligence</title>
         <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     </head>
-    <body class="bg-gray-900 text-gray-100 min-h-screen flex items-center justify-center p-4">
+    <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-cyan-500 selection:text-black">
         
-        <div class="max-w-xl w-full bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-700">
-            <!-- Header -->
-            <div class="text-center mb-6">
-                <h1 class="text-3xl font-extrabold text-cyan-400">Campus Breach Sentinel</h1>
-                <p class="text-gray-400 text-sm mt-1">Institutional cybersecurity intelligence & breach monitoring.</p>
+        <!-- Navbar -->
+        <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-50">
+            <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 bg-cyan-500/20 border border-cyan-400 text-cyan-400 rounded-lg flex items-center justify-center text-lg font-bold">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </div>
+                    <div>
+                        <span class="font-extrabold text-lg tracking-wide text-white">SENTINEL<span class="text-cyan-400">.IO</span></span>
+                        <span class="text-xs ml-2 px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800">Campus SecOps</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4 text-xs font-medium text-slate-400">
+                    <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span> DB Synchronized</span>
+                    <a href="/docs" target="_blank" class="hover:text-cyan-400 transition"><i class="fa-solid fa-code"></i> API Docs</a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-1 max-w-5xl w-full mx-auto px-6 py-8">
+            
+            <!-- Hero Title -->
+            <div class="text-center mb-8">
+                <h1 class="text-3xl sm:text-4xl font-black tracking-tight text-white mb-2">
+                    Institutional Breach & Credential Intelligence
+                </h1>
+                <p class="text-slate-400 max-w-2xl mx-auto text-sm">
+                    Detect exposed university assets, verify password entropy across known leaks, and enforce zero-trust identity safeguards.
+                </p>
             </div>
 
-            <!-- Tab Switcher -->
-            <div class="flex border-b border-gray-700 mb-6 text-sm">
-                <button id="emailTabBtn" onclick="switchTab('email')" class="flex-1 py-2 font-bold text-cyan-400 border-b-2 border-cyan-400">
-                    📧 Email
-                </button>
-                <button id="passwordTabBtn" onclick="switchTab('password')" class="flex-1 py-2 font-bold text-gray-400 border-b-2 border-transparent hover:text-gray-200">
-                    🔑 Password
-                </button>
-                <button id="domainTabBtn" onclick="switchTab('domain')" class="flex-1 py-2 font-bold text-gray-400 border-b-2 border-transparent hover:text-gray-200">
-                    🏫 Campus Domain
-                </button>
-            </div>
-
-            <!-- TAB 1: Email Form -->
-            <div id="emailSection">
-                <div class="flex gap-2 mb-4">
-                    <input id="emailInput" type="email" placeholder="Enter email (e.g. student@college.edu)" 
-                           class="flex-1 px-4 py-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-cyan-400" />
-                    <button onclick="searchEmail()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg transition">
-                        Check
-                    </button>
+            <!-- Live Metrics Counter -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center gap-4">
+                    <div class="p-3 bg-cyan-500/10 text-cyan-400 rounded-lg text-xl"><i class="fa-solid fa-database"></i></div>
+                    <div>
+                        <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Breach Events</div>
+                        <div id="metricBreaches" class="text-xl font-bold text-white">Loading...</div>
+                    </div>
+                </div>
+                <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center gap-4">
+                    <div class="p-3 bg-indigo-500/10 text-indigo-400 rounded-lg text-xl"><i class="fa-solid fa-key"></i></div>
+                    <div>
+                        <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Indexed Passwords</div>
+                        <div id="metricPasswords" class="text-xl font-bold text-white">Loading...</div>
+                    </div>
+                </div>
+                <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex items-center gap-4">
+                    <div class="p-3 bg-amber-500/10 text-amber-400 rounded-lg text-xl"><i class="fa-solid fa-user-shield"></i></div>
+                    <div>
+                        <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Monitored Targets</div>
+                        <div id="metricTargets" class="text-xl font-bold text-white">Loading...</div>
+                    </div>
                 </div>
             </div>
 
-            <!-- TAB 2: Password Form -->
-            <div id="passwordSection" class="hidden">
-                <div class="flex gap-2 mb-4">
-                    <input id="passwordInput" type="text" placeholder="Enter password (e.g. password123)" 
-                           class="flex-1 px-4 py-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-cyan-400" />
-                    <button onclick="searchPassword()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg transition">
-                        Check
+            <!-- Dashboard Card -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden mb-8">
+                <!-- Navigation Tabs -->
+                <div class="grid grid-cols-3 border-b border-slate-800 bg-slate-950/40 text-sm">
+                    <button id="emailTabBtn" onclick="switchTab('email')" class="py-3.5 font-semibold text-cyan-400 border-b-2 border-cyan-400 flex items-center justify-center gap-2 transition">
+                        <i class="fa-regular fa-envelope"></i> Email Audit
+                    </button>
+                    <button id="passwordTabBtn" onclick="switchTab('password')" class="py-3.5 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 flex items-center justify-center gap-2 transition">
+                        <i class="fa-solid fa-fingerprint"></i> Password Hash
+                    </button>
+                    <button id="domainTabBtn" onclick="switchTab('domain')" class="py-3.5 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 flex items-center justify-center gap-2 transition">
+                        <i class="fa-solid fa-network-wired"></i> Domain Radar
                     </button>
                 </div>
-            </div>
 
-            <!-- TAB 3: Domain Form -->
-            <div id="domainSection" class="hidden">
-                <div class="flex gap-2 mb-4">
-                    <input id="domainInput" type="text" placeholder="Enter domain (e.g. college.edu)" 
-                           class="flex-1 px-4 py-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-cyan-400" />
-                    <button onclick="searchDomain()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg transition">
-                        Audit
-                    </button>
+                <div class="p-6">
+                    <!-- SECTION 1: Email -->
+                    <div id="emailSection">
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Target Email Identifier</label>
+                        <div class="flex gap-2">
+                            <input id="emailInput" type="email" placeholder="e.g. student@college.edu" 
+                                   class="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition" />
+                            <button onclick="searchEmail()" class="bg-cyan-500 hover:bg-cyan-400 font-bold text-slate-950 px-6 py-3 rounded-xl transition shadow-lg shadow-cyan-500/20">
+                                Scan
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: Password -->
+                    <div id="passwordSection" class="hidden">
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Check Plaintext Exposure</label>
+                        <div class="flex gap-2">
+                            <input id="passwordInput" type="password" oninput="evalPasswordStrength(this.value)" placeholder="Enter test password (e.g. password123)" 
+                                   class="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition" />
+                            <button onclick="searchPassword()" class="bg-cyan-500 hover:bg-cyan-400 font-bold text-slate-950 px-6 py-3 rounded-xl transition shadow-lg shadow-cyan-500/20">
+                                Verify
+                            </button>
+                        </div>
+                        
+                        <!-- Password Strength Meter -->
+                        <div class="mt-3">
+                            <div class="flex justify-between items-center text-xs mb-1">
+                                <span class="text-slate-400">Entropy Strength:</span>
+                                <span id="strengthLabel" class="font-bold text-slate-500">None</span>
+                            </div>
+                            <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                                <div id="strengthBar" class="h-full w-0 bg-slate-600 transition-all duration-300"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 3: Domain -->
+                    <div id="domainSection" class="hidden">
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Institutional Domain Identifier</label>
+                        <div class="flex gap-2">
+                            <input id="domainInput" type="text" placeholder="e.g. college.edu" 
+                                   class="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 transition" />
+                            <button onclick="searchDomain()" class="bg-cyan-500 hover:bg-cyan-400 font-bold text-slate-950 px-6 py-3 rounded-xl transition shadow-lg shadow-cyan-500/20">
+                                Audit Domain
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Results Output Area -->
+                    <div id="results" class="hidden mt-6"></div>
                 </div>
-                <p class="text-xs text-gray-400 text-center mb-2">Scan institution domain to detect exposed faculty & student accounts.</p>
             </div>
-
-            <!-- Output Box -->
-            <div id="results" class="hidden"></div>
-        </div>
+        </main>
 
         <script>
-            // Store current query results in memory for CSV export
             let currentEmailResults = null;
             let currentDomainResults = null;
 
+            // Load live platform statistics
+            async function loadMetrics() {
+                try {
+                    const res = await fetch('/api/metrics');
+                    const data = await res.json();
+                    document.getElementById('metricBreaches').textContent = data.total_records.toLocaleString();
+                    document.getElementById('metricPasswords').textContent = data.indexed_passwords.toLocaleString();
+                    document.getElementById('metricTargets').textContent = data.distinct_targets.toLocaleString();
+                } catch(e) {}
+            }
+            loadMetrics();
+
             function switchTab(tab) {
-                const sections = {
-                    email: document.getElementById('emailSection'),
-                    password: document.getElementById('passwordSection'),
-                    domain: document.getElementById('domainSection')
-                };
-                const buttons = {
-                    email: document.getElementById('emailTabBtn'),
-                    password: document.getElementById('passwordTabBtn'),
-                    domain: document.getElementById('domainTabBtn')
-                };
-
-                document.getElementById('results').classList.add('hidden');
-
-                for (let key in sections) {
-                    if (key === tab) {
-                        sections[key].classList.remove('hidden');
-                        buttons[key].className = 'flex-1 py-2 font-bold text-cyan-400 border-b-2 border-cyan-400';
+                const tabs = ['email', 'password', 'domain'];
+                tabs.forEach(t => {
+                    const section = document.getElementById(t + 'Section');
+                    const btn = document.getElementById(t + 'TabBtn');
+                    if (t === tab) {
+                        section.classList.remove('hidden');
+                        btn.className = 'py-3.5 font-semibold text-cyan-400 border-b-2 border-cyan-400 flex items-center justify-center gap-2 transition';
                     } else {
-                        sections[key].classList.add('hidden');
-                        buttons[key].className = 'flex-1 py-2 font-bold text-gray-400 border-b-2 border-transparent hover:text-gray-200';
+                        section.classList.add('hidden');
+                        btn.className = 'py-3.5 font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200 flex items-center justify-center gap-2 transition';
                     }
+                });
+                document.getElementById('results').classList.add('hidden');
+            }
+
+            function evalPasswordStrength(pwd) {
+                const bar = document.getElementById('strengthBar');
+                const label = document.getElementById('strengthLabel');
+                let score = 0;
+
+                if (!pwd) {
+                    bar.style.width = '0%';
+                    label.textContent = 'None';
+                    label.className = 'font-bold text-slate-500';
+                    return;
+                }
+
+                if (pwd.length >= 8) score++;
+                if (pwd.length >= 12) score++;
+                if (/[A-Z]/.test(pwd)) score++;
+                if (/[0-9]/.test(pwd)) score++;
+                if (/[^A-Za-z0-9]/.test(pwd)) score++;
+
+                if (score <= 2) {
+                    bar.style.width = '25%';
+                    bar.className = 'h-full bg-rose-500';
+                    label.textContent = 'Weak';
+                    label.className = 'font-bold text-rose-400';
+                } else if (score <= 4) {
+                    bar.style.width = '65%';
+                    bar.className = 'h-full bg-amber-500';
+                    label.textContent = 'Moderate';
+                    label.className = 'font-bold text-amber-400';
+                } else {
+                    bar.style.width = '100%';
+                    bar.className = 'h-full bg-emerald-500';
+                    label.textContent = 'Strong (High Entropy)';
+                    label.className = 'font-bold text-emerald-400';
                 }
             }
 
-            // Generic function to trigger browser CSV download
             function downloadCSV(filename, csvContent) {
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement("a");
-                const url = URL.createObjectURL(blob);
-                link.setAttribute("href", url);
-                link.setAttribute("download", filename);
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
             }
 
-            // Export email breach results
             function exportEmailCSV() {
                 if (!currentEmailResults || !currentEmailResults.breaches.length) return;
-                let csv = "Email,Breach Name,Breach Date,Exposed Data,Risk Level\\n";
+                let csv = "Target Email,Breach Source,Incident Date,Compromised Vectors,Threat Level\\n";
                 currentEmailResults.breaches.forEach(b => {
                     csv += `"${currentEmailResults.email}","${b.name}","${b.date}","${b.leaked}","${b.risk}"\\n`;
                 });
-                downloadCSV(`breach_report_${currentEmailResults.email}.csv`, csv);
+                downloadCSV(`threat_intel_${currentEmailResults.email}.csv`, csv);
             }
 
-            // Export domain audit report
             function exportDomainCSV() {
                 if (!currentDomainResults || !currentDomainResults.results.length) return;
-                let csv = "Domain,Compromised Account,Breach Source,Breach Date,Exposed Data,Risk Level\\n";
+                let csv = "Domain Perimeter,Account Handle,Breach Name,Incident Date,Compromised Vectors,Threat Level\\n";
                 currentDomainResults.results.forEach(r => {
                     csv += `"${currentDomainResults.domain}","${r.email}","${r.name}","${r.date}","${r.leaked}","${r.risk}"\\n`;
                 });
@@ -209,76 +325,96 @@ def home():
 
             async function searchEmail() {
                 const email = document.getElementById('emailInput').value.trim();
-                const resultsDiv = document.getElementById('results');
-                if (!email) return alert("Please enter an email!");
+                const out = document.getElementById('results');
+                if (!email) return alert("Please enter an email address.");
 
-                resultsDiv.classList.remove('hidden');
-                resultsDiv.innerHTML = '<p class="text-center text-gray-400 py-4">Searching database...</p>';
+                out.classList.remove('hidden');
+                out.innerHTML = '<div class="text-center py-6 text-slate-400"><i class="fa-solid fa-spinner fa-spin text-2xl text-cyan-400"></i><p class="mt-2 text-xs">Querying threat registry...</p></div>';
 
                 const res = await fetch('/api/check-email?email=' + encodeURIComponent(email));
                 const data = await res.json();
                 currentEmailResults = data;
 
                 if (!data.is_breached) {
-                    resultsDiv.innerHTML = `
-                        <div class="p-5 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-center">
-                            <div class="text-3xl mb-1">✅</div>
-                            <h3 class="font-bold text-lg text-emerald-300">Safe! No Breaches Found</h3>
-                            <p class="text-xs text-gray-300 mt-1">This email does not appear in our records.</p>
+                    out.innerHTML = `
+                        <div class="p-6 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-center">
+                            <i class="fa-regular fa-circle-check text-emerald-400 text-3xl mb-2"></i>
+                            <h3 class="text-base font-bold text-emerald-300">Clean Identity Perimeter</h3>
+                            <p class="text-xs text-slate-400 mt-1">No exposure records detected for <span class="font-mono text-emerald-200">${data.email}</span>.</p>
                         </div>
                     `;
                     return;
                 }
 
-                let breachCards = data.breaches.map(b => `
-                    <div class="p-3 bg-gray-900 border border-gray-700 rounded-lg mt-2 text-left">
-                        <div class="flex justify-between items-center">
-                            <h4 class="font-bold text-cyan-300 text-sm">${b.name}</h4>
-                            <span class="text-xs px-2 py-0.5 rounded font-bold bg-rose-900 text-rose-300">${b.risk} Risk</span>
+                let cards = data.breaches.map(b => `
+                    <div class="p-4 bg-slate-950/60 border border-slate-800 rounded-lg">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold text-slate-100 text-sm">${b.name}</span>
+                            <span class="text-xs px-2 py-0.5 rounded font-bold ${b.risk === 'High' ? 'bg-rose-950 text-rose-400 border border-rose-800' : 'bg-amber-950 text-amber-400 border border-amber-800'}">${b.risk} Risk</span>
                         </div>
-                        <p class="text-xs text-gray-400">Date: ${b.date}</p>
-                        <p class="text-xs text-gray-300 mt-1"><strong class="text-red-400">Exposed:</strong> ${b.leaked}</p>
+                        <div class="text-xs text-slate-500 mb-2">Incident Date: ${b.date}</div>
+                        <div class="text-xs text-slate-300 bg-slate-900 p-2 rounded border border-slate-800/80">
+                            <span class="text-rose-400 font-semibold">Exposed Vectors:</span> ${b.leaked}
+                        </div>
                     </div>
                 `).join('');
 
-                resultsDiv.innerHTML = `
-                    <div class="p-4 bg-rose-950/70 border border-rose-500/50 rounded-xl">
-                        <div class="flex justify-between items-center mb-2">
-                            <h3 class="font-bold text-rose-300">⚠️ Found in ${data.total_breaches} leak(s)</h3>
-                            <button onclick="exportEmailCSV()" class="bg-cyan-500 hover:bg-cyan-600 text-gray-950 text-xs font-bold py-1 px-3 rounded flex items-center gap-1 transition">
-                                📥 Download CSV
+                out.innerHTML = `
+                    <div class="p-5 bg-rose-950/30 border border-rose-500/40 rounded-xl">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="font-bold text-rose-300 text-sm">Compromise Detected (${data.total_breaches} Incidents)</h3>
+                                <p class="text-xs text-slate-400">Account credentials actively circulate in underground dumps.</p>
+                            </div>
+                            <button onclick="exportEmailCSV()" class="bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-download"></i> CSV Report
                             </button>
                         </div>
-                        <div>${breachCards}</div>
+                        <div class="space-y-2 mb-4">${cards}</div>
+                        <!-- Remediation Plan -->
+                        <div class="p-3 bg-slate-900 border border-slate-800 rounded-lg text-xs">
+                            <div class="font-bold text-slate-200 mb-1 flex items-center gap-1.5"><i class="fa-solid fa-list-check text-cyan-400"></i> Immediate Action Plan</div>
+                            <ul class="list-disc pl-5 text-slate-400 space-y-1">
+                                <li>Rotate account credentials immediately.</li>
+                                <li>Enforce hardware-bound Multi-Factor Authentication (MFA).</li>
+                                <li>Invalidate active OAuth sessions on connected third-party apps.</li>
+                            </ul>
+                        </div>
                     </div>
                 `;
             }
 
             async function searchPassword() {
                 const pwd = document.getElementById('passwordInput').value;
-                const resultsDiv = document.getElementById('results');
-                if (!pwd) return alert("Please enter a password!");
+                const out = document.getElementById('results');
+                if (!pwd) return alert("Please enter a password string.");
 
-                resultsDiv.classList.remove('hidden');
-                resultsDiv.innerHTML = '<p class="text-center text-gray-400 py-4">Checking password...</p>';
+                out.classList.remove('hidden');
+                out.innerHTML = '<div class="text-center py-6 text-slate-400"><i class="fa-solid fa-spinner fa-spin text-2xl text-cyan-400"></i><p class="mt-2 text-xs">Generating hash & querying signatures...</p></div>';
 
                 const res = await fetch('/api/check-password?password=' + encodeURIComponent(pwd));
                 const data = await res.json();
 
                 if (!data.is_leaked) {
-                    resultsDiv.innerHTML = `
-                        <div class="p-5 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-center">
-                            <div class="text-3xl mb-1">✅</div>
-                            <h3 class="font-bold text-emerald-300">Password Not Found</h3>
-                            <p class="text-xs text-gray-300 mt-1">This password has not been exposed in known breaches.</p>
+                    out.innerHTML = `
+                        <div class="p-6 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-center">
+                            <i class="fa-regular fa-circle-check text-emerald-400 text-3xl mb-2"></i>
+                            <h3 class="text-base font-bold text-emerald-300">Password Signature Not Found</h3>
+                            <p class="text-xs text-slate-400 mt-1">This specific SHA-256 signature does not exist in known breach databases.</p>
+                            <div class="mt-3 font-mono text-[10px] text-slate-500 break-all bg-slate-900 p-2 rounded border border-slate-800">
+                                SHA-256: ${data.sha256}
+                            </div>
                         </div>
                     `;
                 } else {
-                    resultsDiv.innerHTML = `
-                        <div class="p-5 bg-rose-950/70 border border-rose-500/50 rounded-xl text-center">
-                            <div class="text-3xl mb-1">🚨</div>
-                            <h3 class="font-bold text-rose-300">Compromised Password!</h3>
-                            <p class="text-sm text-gray-200 mt-2">Appeared in leaks <strong class="text-amber-300">${data.times_seen.toLocaleString()}</strong> times.</p>
+                    out.innerHTML = `
+                        <div class="p-6 bg-rose-950/40 border border-rose-500/40 rounded-xl text-center">
+                            <i class="fa-solid fa-triangle-exclamation text-rose-400 text-3xl mb-2"></i>
+                            <h3 class="text-base font-bold text-rose-300">Compromised Password Hash</h3>
+                            <p class="text-xs text-slate-300 mt-1">Detected across <strong class="text-rose-400 font-bold">${data.times_seen.toLocaleString()}</strong> public data dumps.</p>
+                            <div class="mt-3 font-mono text-[10px] text-slate-500 break-all bg-slate-900 p-2 rounded border border-slate-800">
+                                SHA-256: ${data.sha256}
+                            </div>
                         </div>
                     `;
                 }
@@ -286,54 +422,56 @@ def home():
 
             async function searchDomain() {
                 const domain = document.getElementById('domainInput').value.trim();
-                const resultsDiv = document.getElementById('results');
-                if (!domain) return alert("Please enter a domain (e.g. college.edu)!");
+                const out = document.getElementById('results');
+                if (!domain) return alert("Please enter a domain handle.");
 
-                resultsDiv.classList.remove('hidden');
-                resultsDiv.innerHTML = '<p class="text-center text-gray-400 py-4">Auditing domain records...</p>';
+                out.classList.remove('hidden');
+                out.innerHTML = '<div class="text-center py-6 text-slate-400"><i class="fa-solid fa-spinner fa-spin text-2xl text-cyan-400"></i><p class="mt-2 text-xs">Auditing institutional domain records...</p></div>';
 
                 const res = await fetch('/api/check-domain?domain=' + encodeURIComponent(domain));
                 const data = await res.json();
                 currentDomainResults = data;
 
                 if (data.total_found === 0) {
-                    resultsDiv.innerHTML = `
-                        <div class="p-5 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-center">
-                            <div class="text-3xl mb-1">✅</div>
-                            <h3 class="font-bold text-emerald-300">No Breached Accounts Found</h3>
-                            <p class="text-xs text-gray-300 mt-1">No exposed credentials detected under @${data.domain}.</p>
+                    out.innerHTML = `
+                        <div class="p-6 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-center">
+                            <i class="fa-regular fa-circle-check text-emerald-400 text-3xl mb-2"></i>
+                            <h3 class="text-base font-bold text-emerald-300">Clean Institutional Domain</h3>
+                            <p class="text-xs text-slate-400 mt-1">Zero leaks detected matching <span class="font-mono text-emerald-200">@${data.domain}</span>.</p>
                         </div>
                     `;
                 } else {
                     let rows = data.results.map(r => `
-                        <tr class="border-b border-gray-700 text-xs">
-                            <td class="py-2 text-cyan-300 font-mono">${r.email}</td>
-                            <td class="py-2 text-gray-300">${r.name}</td>
-                            <td class="py-2 text-amber-300">${r.leaked}</td>
+                        <tr class="border-b border-slate-800 text-xs">
+                            <td class="py-2.5 px-3 font-mono text-cyan-300">${r.email}</td>
+                            <td class="py-2.5 px-3 text-slate-200">${r.name}</td>
+                            <td class="py-2.5 px-3 text-slate-400">${r.leaked}</td>
+                            <td class="py-2.5 px-3"><span class="px-2 py-0.5 text-[10px] rounded font-bold ${r.risk === 'High' ? 'bg-rose-950 text-rose-400 border border-rose-800' : 'bg-amber-950 text-amber-400 border border-amber-800'}">${r.risk}</span></td>
                         </tr>
                     `).join('');
 
-                    resultsDiv.innerHTML = `
-                        <div class="p-4 bg-gray-900 border border-amber-500/50 rounded-xl">
-                            <div class="flex justify-between items-center mb-3">
+                    out.innerHTML = `
+                        <div class="p-5 bg-slate-900 border border-amber-500/40 rounded-xl">
+                            <div class="flex items-center justify-between mb-4">
                                 <div>
-                                    <h3 class="font-bold text-amber-300 text-sm">Domain Audit Report: @${data.domain}</h3>
-                                    <span class="text-xs text-gray-400">${data.total_found} Leaked Accounts</span>
+                                    <h3 class="font-bold text-amber-300 text-sm">Domain Incident Audit: @${data.domain}</h3>
+                                    <p class="text-xs text-slate-400">${data.total_found} institutional accounts exposed.</p>
                                 </div>
-                                <button onclick="exportDomainCSV()" class="bg-cyan-500 hover:bg-cyan-600 text-gray-950 text-xs font-bold py-1.5 px-3 rounded flex items-center gap-1 transition">
-                                    📥 Download CSV
+                                <button onclick="exportDomainCSV()" class="bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition">
+                                    <i class="fa-solid fa-download"></i> CSV Report
                                 </button>
                             </div>
-                            <div class="overflow-x-auto">
+                            <div class="overflow-x-auto rounded-lg border border-slate-800">
                                 <table class="w-full text-left">
-                                    <thead>
-                                        <tr class="border-b border-gray-600 text-xs text-gray-400">
-                                            <th class="py-1">Account</th>
-                                            <th class="py-1">Breach Source</th>
-                                            <th class="py-1">Exposed Data</th>
+                                    <thead class="bg-slate-950/80 text-slate-400 text-xs border-b border-slate-800">
+                                        <tr>
+                                            <th class="py-2 px-3">Identity</th>
+                                            <th class="py-2 px-3">Breach Vector</th>
+                                            <th class="py-2 px-3">Compromised Data</th>
+                                            <th class="py-2 px-3">Risk Level</th>
                                         </tr>
                                     </thead>
-                                    <tbody>${rows}</tbody>
+                                    <tbody class="divide-y divide-slate-800 bg-slate-900/50">${rows}</tbody>
                                 </table>
                             </div>
                         </div>
