@@ -112,7 +112,7 @@ def home():
                 <div class="flex gap-2 mb-4">
                     <input id="emailInput" type="email" placeholder="Enter email (e.g. student@college.edu)" 
                            class="flex-1 px-4 py-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-cyan-400" />
-                    <button onclick="searchEmail()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg">
+                    <button onclick="searchEmail()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg transition">
                         Check
                     </button>
                 </div>
@@ -123,7 +123,7 @@ def home():
                 <div class="flex gap-2 mb-4">
                     <input id="passwordInput" type="text" placeholder="Enter password (e.g. password123)" 
                            class="flex-1 px-4 py-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-cyan-400" />
-                    <button onclick="searchPassword()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg">
+                    <button onclick="searchPassword()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg transition">
                         Check
                     </button>
                 </div>
@@ -134,7 +134,7 @@ def home():
                 <div class="flex gap-2 mb-4">
                     <input id="domainInput" type="text" placeholder="Enter domain (e.g. college.edu)" 
                            class="flex-1 px-4 py-3 rounded-lg bg-gray-700 text-white placeholder-gray-400 border border-gray-600 focus:outline-none focus:border-cyan-400" />
-                    <button onclick="searchDomain()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg">
+                    <button onclick="searchDomain()" class="bg-cyan-500 hover:bg-cyan-600 font-semibold text-gray-950 px-5 py-3 rounded-lg transition">
                         Audit
                     </button>
                 </div>
@@ -146,6 +146,10 @@ def home():
         </div>
 
         <script>
+            // Store current query results in memory for CSV export
+            let currentEmailResults = null;
+            let currentDomainResults = null;
+
             function switchTab(tab) {
                 const sections = {
                     email: document.getElementById('emailSection'),
@@ -171,6 +175,38 @@ def home():
                 }
             }
 
+            // Generic function to trigger browser CSV download
+            function downloadCSV(filename, csvContent) {
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", filename);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            // Export email breach results
+            function exportEmailCSV() {
+                if (!currentEmailResults || !currentEmailResults.breaches.length) return;
+                let csv = "Email,Breach Name,Breach Date,Exposed Data,Risk Level\\n";
+                currentEmailResults.breaches.forEach(b => {
+                    csv += `"${currentEmailResults.email}","${b.name}","${b.date}","${b.leaked}","${b.risk}"\\n`;
+                });
+                downloadCSV(`breach_report_${currentEmailResults.email}.csv`, csv);
+            }
+
+            // Export domain audit report
+            function exportDomainCSV() {
+                if (!currentDomainResults || !currentDomainResults.results.length) return;
+                let csv = "Domain,Compromised Account,Breach Source,Breach Date,Exposed Data,Risk Level\\n";
+                currentDomainResults.results.forEach(r => {
+                    csv += `"${currentDomainResults.domain}","${r.email}","${r.name}","${r.date}","${r.leaked}","${r.risk}"\\n`;
+                });
+                downloadCSV(`domain_audit_${currentDomainResults.domain}.csv`, csv);
+            }
+
             async function searchEmail() {
                 const email = document.getElementById('emailInput').value.trim();
                 const resultsDiv = document.getElementById('results');
@@ -181,6 +217,7 @@ def home():
 
                 const res = await fetch('/api/check-email?email=' + encodeURIComponent(email));
                 const data = await res.json();
+                currentEmailResults = data;
 
                 if (!data.is_breached) {
                     resultsDiv.innerHTML = `
@@ -197,7 +234,7 @@ def home():
                     <div class="p-3 bg-gray-900 border border-gray-700 rounded-lg mt-2 text-left">
                         <div class="flex justify-between items-center">
                             <h4 class="font-bold text-cyan-300 text-sm">${b.name}</h4>
-                            <span class="text-xs px-2 py-0.5 rounded font-bold bg-rose-900 text-rose-300">${b.risk}</span>
+                            <span class="text-xs px-2 py-0.5 rounded font-bold bg-rose-900 text-rose-300">${b.risk} Risk</span>
                         </div>
                         <p class="text-xs text-gray-400">Date: ${b.date}</p>
                         <p class="text-xs text-gray-300 mt-1"><strong class="text-red-400">Exposed:</strong> ${b.leaked}</p>
@@ -206,7 +243,12 @@ def home():
 
                 resultsDiv.innerHTML = `
                     <div class="p-4 bg-rose-950/70 border border-rose-500/50 rounded-xl">
-                        <h3 class="font-bold text-rose-300 text-center">⚠️ Found in ${data.total_breaches} leak(s)</h3>
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="font-bold text-rose-300">⚠️ Found in ${data.total_breaches} leak(s)</h3>
+                            <button onclick="exportEmailCSV()" class="bg-cyan-500 hover:bg-cyan-600 text-gray-950 text-xs font-bold py-1 px-3 rounded flex items-center gap-1 transition">
+                                📥 Download CSV
+                            </button>
+                        </div>
                         <div>${breachCards}</div>
                     </div>
                 `;
@@ -252,6 +294,7 @@ def home():
 
                 const res = await fetch('/api/check-domain?domain=' + encodeURIComponent(domain));
                 const data = await res.json();
+                currentDomainResults = data;
 
                 if (data.total_found === 0) {
                     resultsDiv.innerHTML = `
@@ -273,8 +316,13 @@ def home():
                     resultsDiv.innerHTML = `
                         <div class="p-4 bg-gray-900 border border-amber-500/50 rounded-xl">
                             <div class="flex justify-between items-center mb-3">
-                                <h3 class="font-bold text-amber-300 text-sm">Domain Audit Report: @${data.domain}</h3>
-                                <span class="bg-amber-900 text-amber-200 text-xs px-2 py-0.5 rounded font-bold">${data.total_found} Leaked Accounts</span>
+                                <div>
+                                    <h3 class="font-bold text-amber-300 text-sm">Domain Audit Report: @${data.domain}</h3>
+                                    <span class="text-xs text-gray-400">${data.total_found} Leaked Accounts</span>
+                                </div>
+                                <button onclick="exportDomainCSV()" class="bg-cyan-500 hover:bg-cyan-600 text-gray-950 text-xs font-bold py-1.5 px-3 rounded flex items-center gap-1 transition">
+                                    📥 Download CSV
+                                </button>
                             </div>
                             <div class="overflow-x-auto">
                                 <table class="w-full text-left">
